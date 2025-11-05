@@ -1,93 +1,117 @@
-import os
 import pytest
-from datetime import datetime
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from database import Base, SavedData, get_db
+import os
+import asyncio
+from databases import Database
+import asyncpg # Необходим для корректной работы databases с PostgreSQL
+import datetime
 
-# --- Тестке арналған Конфигурация ---
-# Тесттерді негізгі дерекқордан бөлу үшін, ЖАҢА дерекқорды қолданамыз
-TEST_DATABASE_URL = "sqlite:///./data/test_db.db"
+# --- Конфигурация для CI ---
+# CI-пайплайн устанавливает эту переменную: postgresql://ci_user:ci_password@localhost:5432/ci_test_db
+DATABASE_URL = os.getenv("DATABASE_URL")
 
-# Тест Engine, Base және SessionLocal құру
-test_engine = create_engine(
-    TEST_DATABASE_URL, connect_args={"check_same_thread": False}
-)
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
+# --- Фикстура для Подключения к БД ---
 
-# Барлық тесттерді орындау алдында кестелерді құру
-Base.metadata.create_all(bind=test_engine)
+@pytest.fixture(scope="module")
+async def db_connection():
+    """
+    Устанавливает асинхронное соединение с тестовой БД PostgreSQL
+    и гарантирует, что таблица user_data существует.
+    """
+    if not DATABASE_URL:
+        # Это сработает только если кто-то запустил тест без CI
+        pytest.fail("DATABASE_URL не установлен. Запуск только в CI или с переменной окружения.")
 
-# --- Тестке арналған get_db() функциясын алмастыру ---
-# Бұл функция get_db-ге ұқсас, бірақ тест дерекқорымен жұмыс істейді
-def override_get_db():
+    database = Database(DATABASE_URL)
+
     try:
-        db = TestingSessionLocal()
-        yield db
-    finally:
-        db.close()
+        # Подключение к БД
+        await database.connect()
+    except Exception as e:
+        pytest.fail(f"Не удалось подключиться к PostgreSQL: {e}")
 
-# --- Тесттер ---
+    # Создание таблицы (как в bot_app.py)
+    CREATE_TABLE_QUERY = """
+    CREATE TABLE IF NOT EXISTS user_data (
+        id SERIAL PRIMARY KEY,
+        chat_id BIGINT NOT NULL,
+        username VARCHAR(255),
+        data_text TEXT NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+    """
+    await database.execute(CREATE_TABLE_QUERY)
 
-@pytest.fixture
-def test_db():
-    """Әрбір тесттен кейін дерекқорды тазалайтын фикстура"""
-    db = next(override_get_db())
-    try:
-        yield db
-    finally:
-        # Тест аяқталғаннан кейін барлық жазбаларды жою
-        db.query(SavedData).delete()
-        db.commit()
+    # Предоставляем соединение для тестов
+    yield database
 
-def test_create_and_read_data(test_db):
-    """Жаңа деректер жазбасын құру және оны оқып шығуды тексереді."""
+    # Очистка после выполнения всех тестов модуля
+    await database.execute("DROP TABLE user_data;")
+    await database.disconnect()
 
-    test_text = "Тестілеу арқылы сақталған мәтін"
+# --- Тесты Асинхронных Операций ---
 
-    # 1. Құру (Сақтау)
-    new_data = SavedData(text=test_text)
-    test_db.add(new_data)
-    test_db.commit()
-    test_db.refresh(new_data)
+@pytest.mark.asyncio
+async def test_db_connection_success(db_connection: Database):
+    """Проверяет, что соединение с БД активно."""
+    assert db_connection.is_connected == True
 
-    # 2. Тексеру (Оқу)
-    saved_data = test_db.query(SavedData).filter(SavedData.text == test_text).first()
+@pytest.mark.asyncio
+async def test_data_insertion_and_fetch(db_connection: Database):
+    """Тестирует вставку одной записи и ее последующее извлечение."""
 
-    assert saved_data is not None
-    assert saved_data.text == test_text
-    assert saved_data.status == "Сәтті жіберілді және сақталды"
-    assert saved_data.id == new_data.id
+    test_data = {
+        "chat_id": 10001,
+        "username": "tester_ci",
+        "data_text": "CI data insertion test"
+    }
 
-def test_default_status_and_timestamp(test_db):
-    """Дефолтты мәндердің (status, timestamp) дұрыс орнатылғанын тексереді."""
+    INSERT_QUERY = """
+    INSERT INTO user_data (chat_id, username, data_text)
+    VALUES (:chat_id, :username, :data_text)
+    """
 
-    test_text = "Статус тесті"
+    # 1. Вставка (INSERT)
+    await db_connection.execute(query=INSERT_QUERY, values=test_data)
 
-    new_data = SavedData(text=test_text)
-    test_db.add(new_data)
-    test_db.commit()
-    test_db.refresh(new_data)
+    # 2. Извлечение (SELECT)
+    SELECT_QUERY = "SELECT data_text, chat_id FROM user_data WHERE chat_id = :chat_id"
+    record = await db_connection.fetch_one(query=SELECT_QUERY, values={"chat_id": test_data['chat_id']})
 
-    assert new_data.status == "Сәтті жіберілді және сақталды"
-    # timestamp-тың datetime объектісі екенін тексереміз
-    assert new_data.timestamp is not None
+    # 3. Проверка
+    assert record is not None
+    assert record['data_text'] == test_data['data_text']
 
-def test_fetch_data_order(test_db):
-    """Деректердің уақыт бойынша дұрыс сұрыпталғанын тексереді."""
+@pytest.mark.asyncio
+async def test_fetch_limit_and_order(db_connection: Database):
+    """
+    Проверяет, что /fetch команда (LIMIT 5, ORDER BY DESC) работает корректно.
+    Сначала очистим таблицу от предыдущих тестов, чтобы убедиться в точности
+    (хотя фикстура должна делать это сама, это дополнительная гарантия).
+    """
 
-    # 1-ші жазбаны сақтау
-    data1 = SavedData(text="Бірінші", timestamp=datetime(2025, 1, 1, 10, 0, 0))
-    # 2-ші жазбаны сақтау
-    data2 = SavedData(text="Екінші", timestamp=datetime(2025, 1, 1, 11, 0, 0))
+    await db_connection.execute("DELETE FROM user_data;")
 
-    test_db.add_all([data1, data2])
-    test_db.commit()
+    # Вставляем 6 записей с разными временными метками для проверки порядка
+    for i in range(1, 7):
+        data_text = f"Entry_{i}"
+        # Делаем задержку, чтобы timestamps были гарантированно разные
+        await db_connection.execute(
+            "INSERT INTO user_data (chat_id, username, data_text) VALUES (9999, 'order_test', :text)",
+            values={"text": data_text}
+        )
+        await asyncio.sleep(0.01)
 
-    # Ең жаңасынан (уақыттың кемуі бойынша) сұрыптап алу
-    results = test_db.query(SavedData).order_by(SavedData.timestamp.desc()).all()
+    # Спрашиваем 5 последних записей
+    SELECT_QUERY = """
+    SELECT data_text FROM user_data
+    ORDER BY created_at DESC
+    LIMIT 5;
+    """
+    records = await db_connection.fetch_all(query=SELECT_QUERY)
 
-    # Екінші жазба (11:00) бірінші болуы керек
-    assert results[0].text == "Екінші"
-    # Бірінші жазба (10:00) екінші болуы керек
-    assert results[1].text == "Бірінші"
+    # Проверка: должно быть 5 записей
+    assert len(records) == 5
+
+    # Проверка порядка: последняя вставленная (Entry_6) должна быть первой в списке
+    assert records[0]['data_text'] == "Entry_6"
+    assert records[-1]['data_text'] == "Entry_2" # Entry_1 не попадет в LIMIT 5
