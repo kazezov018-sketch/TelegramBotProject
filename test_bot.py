@@ -6,10 +6,8 @@ from databases import Database
 import asyncpg
 import datetime
 
-# --- Конфигурация для CI ---
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-# --- Фикстура для Подключения к БД ---
 
 @pytest_asyncio.fixture(scope="module")
 async def db_connection():
@@ -27,7 +25,6 @@ async def db_connection():
     except Exception as e:
         pytest.fail(f"Не удалось подключиться к PostgreSQL: {e}")
 
-    # Создание таблицы
     CREATE_TABLE_QUERY = """
     CREATE TABLE IF NOT EXISTS user_data (
         id SERIAL PRIMARY KEY,
@@ -39,14 +36,10 @@ async def db_connection():
     """
     await database.execute(CREATE_TABLE_QUERY)
 
-    # Предоставляем соединение для тестов
     yield database
 
-    # Очистка после выполнения всех тестов модуля
     await database.execute("DROP TABLE user_data;")
     await database.disconnect()
-
-# --- Тесты Асинхронных Операций ---
 
 @pytest.mark.asyncio
 async def test_db_connection_success(db_connection: Database, event_loop): # <-- event_loop қосылды
@@ -68,14 +61,9 @@ async def test_data_insertion_and_fetch(db_connection: Database, event_loop): # 
     VALUES (:chat_id, :username, :data_text)
     """
 
-    # 1. Вставка (INSERT)
-    await db_connection.execute(query=INSERT_QUERY, values=test_data)
-
-    # 2. Извлечение (SELECT)
+    await db_connection.execute(query=INSERT_QUERY, values=test_data
     SELECT_QUERY = "SELECT data_text, chat_id FROM user_data WHERE chat_id = :chat_id"
     record = await db_connection.fetch_one(query=SELECT_QUERY, values={"chat_id": test_data['chat_id']})
-
-    # 3. Проверка
     assert record is not None
     assert record['data_text'] == test_data['data_text']
 
@@ -86,26 +74,19 @@ async def test_fetch_limit_and_order(db_connection: Database, event_loop): # <--
     """
 
     await db_connection.execute("DELETE FROM user_data;")
-
-    # Вставляем 6 записей
     for i in range(1, 7):
         data_text = f"Entry_{i}"
         await db_connection.execute(
             "INSERT INTO user_data (chat_id, username, data_text) VALUES (9999, 'order_test', :text)",
             values={"text": data_text}
         )
-        # Маленькая SQL-команда, чтобы избежать конфликтов цикла
         await db_connection.fetch_one("SELECT 1;")
 
-    # Спрашиваем 5 последних записей
     SELECT_QUERY = """
     SELECT data_text FROM user_data
     ORDER BY created_at DESC
     LIMIT 5;
     """
     records = await db_connection.fetch_all(query=SELECT_QUERY)
-
-    # Проверка порядка
     assert records[0]['data_text'] == "Entry_6"
     assert records[-1]['data_text'] == "Entry_2"
-```eof
