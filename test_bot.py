@@ -61,7 +61,7 @@ async def test_data_insertion_and_fetch(db_connection: Database, event_loop): # 
     VALUES (:chat_id, :username, :data_text)
     """
 
-    await db_connection.execute(query=INSERT_QUERY, values=test_data
+    await db_connection.execute(query=INSERT_QUERY, values=test_data)
     SELECT_QUERY = "SELECT data_text, chat_id FROM user_data WHERE chat_id = :chat_id"
     record = await db_connection.fetch_one(query=SELECT_QUERY, values={"chat_id": test_data['chat_id']})
     assert record is not None
