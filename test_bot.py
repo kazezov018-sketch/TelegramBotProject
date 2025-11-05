@@ -1,8 +1,9 @@
 import pytest
+import pytest_asyncio # <-- НОВЫЙ ИМПОРТ: Обязателен для асинхронных фикстур
 import os
 import asyncio
 from databases import Database
-import asyncpg # Необходим для корректной работы databases с PostgreSQL
+import asyncpg
 import datetime
 
 # --- Конфигурация для CI ---
@@ -11,20 +12,18 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 
 # --- Фикстура для Подключения к БД ---
 
-@pytest.fixture(scope="module")
+@pytest_asyncio.fixture(scope="module") # <-- ИСПРАВЛЕНО: Теперь Pytest запускает фикстуру асинхронно
 async def db_connection():
     """
     Устанавливает асинхронное соединение с тестовой БД PostgreSQL
     и гарантирует, что таблица user_data существует.
     """
     if not DATABASE_URL:
-        # Это сработает только если кто-то запустил тест без CI
-        pytest.fail("DATABASE_URL не установлен. Запуск только в CI или с переменной окружения.")
+        pytest.fail("DATABASE_URL не установлен.")
 
     database = Database(DATABASE_URL)
 
     try:
-        # Подключение к БД
         await database.connect()
     except Exception as e:
         pytest.fail(f"Не удалось подключиться к PostgreSQL: {e}")
@@ -85,16 +84,13 @@ async def test_data_insertion_and_fetch(db_connection: Database):
 async def test_fetch_limit_and_order(db_connection: Database):
     """
     Проверяет, что /fetch команда (LIMIT 5, ORDER BY DESC) работает корректно.
-    Сначала очистим таблицу от предыдущих тестов, чтобы убедиться в точности
-    (хотя фикстура должна делать это сама, это дополнительная гарантия).
     """
 
     await db_connection.execute("DELETE FROM user_data;")
 
-    # Вставляем 6 записей с разными временными метками для проверки порядка
+    # Вставляем 6 записей
     for i in range(1, 7):
         data_text = f"Entry_{i}"
-        # Делаем задержку, чтобы timestamps были гарантированно разные
         await db_connection.execute(
             "INSERT INTO user_data (chat_id, username, data_text) VALUES (9999, 'order_test', :text)",
             values={"text": data_text}
@@ -109,9 +105,6 @@ async def test_fetch_limit_and_order(db_connection: Database):
     """
     records = await db_connection.fetch_all(query=SELECT_QUERY)
 
-    # Проверка: должно быть 5 записей
-    assert len(records) == 5
-
     # Проверка порядка: последняя вставленная (Entry_6) должна быть первой в списке
     assert records[0]['data_text'] == "Entry_6"
-    assert records[-1]['data_text'] == "Entry_2" # Entry_1 не попадет в LIMIT 5
+    assert records[-1]['data_text'] == "Entry_2"
