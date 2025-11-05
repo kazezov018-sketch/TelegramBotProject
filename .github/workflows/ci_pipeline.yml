@@ -1,5 +1,3 @@
-@'
-# GitHub Actions CI/CD пайплайн конфигурациясы
 name: CI (Уздиксиз Интеграция)
 
 on:
@@ -28,7 +26,7 @@ jobs:
           --health-retries 5
 
     steps:
-      - name: Репозиторийді алу (Checkout repository)
+      - name: Репозиторийди алу (Checkout repository)
         uses: actions/checkout@v4
 
       - name: Python 3.12 орнату
@@ -57,4 +55,3 @@ jobs:
       - name: Нәтижені хабарлау
         if: always()
         run: echo "CI пайплайн аяқталды."
-'@ | Out-File -FilePath .github/workflows/ci_pipeline.yml -Encoding UTF8
