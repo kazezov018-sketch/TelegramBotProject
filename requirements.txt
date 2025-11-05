@@ -1,0 +1,6 @@
+fastapi
+python-telegram-bot==21.0.1
+uvicorn
+gunicorn
+python-dotenv
+databases[asyncpg]

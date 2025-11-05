@@ -1,0 +1,60 @@
+@'
+# GitHub Actions CI/CD пайплайн конфигурациясы
+name: CI (Уздиксиз Интеграция)
+
+on:
+  push:
+    branches: [ "main", "develop" ]
+  pull_request:
+    branches: [ "main", "develop" ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:14-alpine
+        env:
+          POSTGRES_USER: ci_user
+          POSTGRES_PASSWORD: ci_password
+          POSTGRES_DB: ci_test_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Репозиторийді алу (Checkout repository)
+        uses: actions/checkout@v4
+
+      - name: Python 3.12 орнату
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Тәуелділіктерді орнату (Install dependencies)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: PostgreSQL қосылуын күту
+        uses: zgosalvez/wait-for-service@v2
+        with:
+          target: postgres:5432
+          timeout: 60s
+
+      - name: Тесттерді орындау (Run tests)
+        env:
+          DATABASE_URL: postgresql://ci_user:ci_password@localhost:5432/ci_test_db
+          TELEGRAM_BOT_TOKEN: mock_token_for_ci
+        run: |
+          pytest test_bot.py
+
+      - name: Нәтижені хабарлау
+        if: always()
+        run: echo "CI пайплайн аяқталды."
+'@ | Out-File -FilePath .github/workflows/ci_pipeline.yml -Encoding UTF8
