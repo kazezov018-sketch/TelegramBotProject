@@ -1,5 +1,5 @@
 import pytest
-import pytest_asyncio # <-- НОВЫЙ ИМПОРТ: Обязателен для асинхронных фикстур
+import pytest_asyncio # Импорт
 import os
 import asyncio
 from databases import Database
@@ -7,12 +7,11 @@ import asyncpg
 import datetime
 
 # --- Конфигурация для CI ---
-# CI-пайплайн устанавливает эту переменную: postgresql://ci_user:ci_password@localhost:5432/ci_test_db
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 # --- Фикстура для Подключения к БД ---
 
-@pytest_asyncio.fixture(scope="module") # <-- ИСПРАВЛЕНО: Теперь Pytest запускает фикстуру асинхронно
+@pytest_asyncio.fixture(scope="module")
 async def db_connection():
     """
     Устанавливает асинхронное соединение с тестовой БД PostgreSQL
@@ -28,7 +27,7 @@ async def db_connection():
     except Exception as e:
         pytest.fail(f"Не удалось подключиться к PostgreSQL: {e}")
 
-    # Создание таблицы (как в bot_app.py)
+    # Создание таблицы
     CREATE_TABLE_QUERY = """
     CREATE TABLE IF NOT EXISTS user_data (
         id SERIAL PRIMARY KEY,
@@ -50,12 +49,12 @@ async def db_connection():
 # --- Тесты Асинхронных Операций ---
 
 @pytest.mark.asyncio
-async def test_db_connection_success(db_connection: Database):
+async def test_db_connection_success(db_connection: Database, event_loop): # <-- event_loop қосылды
     """Проверяет, что соединение с БД активно."""
     assert db_connection.is_connected == True
 
 @pytest.mark.asyncio
-async def test_data_insertion_and_fetch(db_connection: Database):
+async def test_data_insertion_and_fetch(db_connection: Database, event_loop): # <-- event_loop қосылды
     """Тестирует вставку одной записи и ее последующее извлечение."""
 
     test_data = {
@@ -81,7 +80,7 @@ async def test_data_insertion_and_fetch(db_connection: Database):
     assert record['data_text'] == test_data['data_text']
 
 @pytest.mark.asyncio
-async def test_fetch_limit_and_order(db_connection: Database):
+async def test_fetch_limit_and_order(db_connection: Database, event_loop): # <-- event_loop қосылды
     """
     Проверяет, что /fetch команда (LIMIT 5, ORDER BY DESC) работает корректно.
     """
@@ -95,7 +94,8 @@ async def test_fetch_limit_and_order(db_connection: Database):
             "INSERT INTO user_data (chat_id, username, data_text) VALUES (9999, 'order_test', :text)",
             values={"text": data_text}
         )
-        await asyncio.sleep(0.01)
+        # Маленькая SQL-команда, чтобы избежать конфликтов цикла
+        await db_connection.fetch_one("SELECT 1;")
 
     # Спрашиваем 5 последних записей
     SELECT_QUERY = """
@@ -105,6 +105,7 @@ async def test_fetch_limit_and_order(db_connection: Database):
     """
     records = await db_connection.fetch_all(query=SELECT_QUERY)
 
-    # Проверка порядка: последняя вставленная (Entry_6) должна быть первой в списке
+    # Проверка порядка
     assert records[0]['data_text'] == "Entry_6"
     assert records[-1]['data_text'] == "Entry_2"
+```eof
