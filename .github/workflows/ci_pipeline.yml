@@ -37,8 +37,8 @@ jobs:
 
       - name: Тәуелділіктерди орнату (Install dependencies)
         run: |
-          # Установка netcat для проверки порта
-          sudo apt-get update && sudo apt-get install -y netcat
+          # Установка netcat-openbsd для проверки порта
+          sudo apt-get update && sudo apt-get install -y netcat-openbsd
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
@@ -64,4 +64,4 @@ jobs:
 
       - name: Нәтижені хабарлау
         if: always()
-        run: echo "CI пайплайн аяқталды
+        run: echo "CI пайплайн аяқталды"
