@@ -11,18 +11,11 @@ if not DATABASE_URL:
     DATABASE_URL = "postgresql://user:password@localhost:5432/test_db"
 
 
-# 1. Event Loop-ты Сессияда бекіту
-@pytest.fixture(scope="session")
-def event_loop():
-    """Фиксирует Event Loop в области видимости 'session'."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    asyncio.set_event_loop(loop)
-    yield loop
-    loop.close()
+# 1. Event Loop-ты Сессияда бекіту - ЭТОТ БЛОК УДАЛЕН!
 
 
-# 2. Асинхронды DB фикстурасы: scope="session" (КРИТИЧЕСКОЕ ИЗМЕНЕНИЕ)
-# Используется scope="session" для соответствия event_loop и устранения конфликтов пула.
+# 2. Асинхронды DB фикстурасы: scope="session" (Оставляем session)
+# pytest-asyncio автоматически запустит эту фикстуру в цикле.
 @pytest_asyncio.fixture(scope="session")
 async def db_connection():
     """
@@ -58,7 +51,7 @@ async def db_connection():
     await database.disconnect()
 
 
-# 3. Асинхронды Тазалау фикстурасы: Удалена избыточная очистка в Teardown
+# 3. Асинхронды Тазалау фикстурасы: (Оставляем function)
 @pytest_asyncio.fixture(scope="function")
 async def cleanup_db_data(db_connection: Database):
     """Очищает таблицу user_data перед каждым тестом (только Setup)."""
@@ -67,5 +60,7 @@ async def cleanup_db_data(db_connection: Database):
     await db_connection.execute("DELETE FROM user_data;")
 
     yield
-    
+
+    # Teardown: Пусто
     pass
+```eof
