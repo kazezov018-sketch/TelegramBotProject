@@ -46,7 +46,7 @@ async def db_connection():
     await database.execute("DROP TABLE user_data;")
     await database.disconnect()
 
-    @pytest.fixture(scope="function")
+@pytest.fixture(scope="function")
 async def cleanup_db_data(db_connection: Database):
     """Очищает таблицу user_data перед каждым тестом."""
 
