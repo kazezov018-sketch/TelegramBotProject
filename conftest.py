@@ -7,35 +7,39 @@ import pytest_asyncio
 # CI үшін айнымалы ортаны пайдалану
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
-    # Жергілікті орындау үшін запас мән
+    # Запасное значение для локального запуска
     DATABASE_URL = "postgresql://user:password@localhost:5432/test_db"
 
 
-# 1. Event Loop-ты Сессияда бекіту (pytest-asyncio талабы)
+# 1. Event Loop-ты Сессияда бекіту
 @pytest.fixture(scope="session")
 def event_loop():
-    """Event Loop-ты сессия деңгейінде бекітеді."""
+    """Фиксирует Event Loop в области видимости 'session'."""
     loop = asyncio.get_event_loop_policy().new_event_loop()
     asyncio.set_event_loop(loop)
     yield loop
     loop.close()
 
 
-# 2. Асинхронды DB фикстурасы: @pytest_asyncio.fixture қолданылады
-@pytest_asyncio.fixture(scope="module")
+# 2. Асинхронды DB фикстурасы: scope="session" (КРИТИЧЕСКОЕ ИЗМЕНЕНИЕ)
+# Используется scope="session" для соответствия event_loop и устранения конфликтов пула.
+@pytest_asyncio.fixture(scope="session")
 async def db_connection():
-    """DB-ға қосылуды орнатады және кестені жасайды."""
+    """
+    Устанавливает асинхронное соединение с БД и создает таблицу.
+    Область видимости: session.
+    """
     if not DATABASE_URL:
-        pytest.fail("DATABASE_URL орнатылмаған.")
+        pytest.fail("DATABASE_URL не установлен.")
 
     database = Database(DATABASE_URL)
 
     try:
         await database.connect()
     except Exception as e:
-        pytest.fail(f"PostgreSQL-ге қосылу мүмкін болмады: {e}")
+        pytest.fail(f"Не удалось подключиться к PostgreSQL: {e}")
 
-    # Кестені жасау
+    # Создание таблицы
     CREATE_TABLE_QUERY = """
     CREATE TABLE IF NOT EXISTS user_data (
         id SERIAL PRIMARY KEY,
@@ -49,20 +53,19 @@ async def db_connection():
 
     yield database
 
-    # Модуль аяқталғаннан кейінгі тазалау
+    # Сессия аяқталғаннан кейінгі тазалау
     await database.execute("DROP TABLE user_data;")
     await database.disconnect()
 
 
-# 3. Асинхронды Тазалау фикстурасы: @pytest_asyncio.fixture қолданылады
+# 3. Асинхронды Тазалау фикстурасы: Удалена избыточная очистка в Teardown
 @pytest_asyncio.fixture(scope="function")
 async def cleanup_db_data(db_connection: Database):
-    """Әр тест алдында user_data кестесін тазалайды."""
+    """Очищает таблицу user_data перед каждым тестом (только Setup)."""
 
-    # Setup: Тест алдында тазалау
+    # Setup: Очистка перед тестом (Обязательно!)
     await db_connection.execute("DELETE FROM user_data;")
 
     yield
-
-    # Teardown: Тестен кейінгі тазалау
-    await db_connection.execute("DELETE FROM user_data;")
+    
+    pass
