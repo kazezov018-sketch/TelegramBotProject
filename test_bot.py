@@ -1,19 +1,18 @@
 import pytest
 from databases import Database
-# db_connection және cleanup_db_data фикстуралары conftest.py файлынан автоматты түрде импортталады
 
-# --- Тестілер ---
-
-@pytest.mark.asyncio
-async def test_db_connection_success(db_connection: Database):
-    """Базалық қосылымның белсенді екенін тексереді."""
-    assert db_connection.is_connected == True
+# Убедитесь, что фикстуры из conftest.py доступны
 
 @pytest.mark.asyncio
-async def test_data_insertion_and_fetch(db_connection: Database, cleanup_db_data):
+async def test_connection_successful(db_connection: Database):
+    """Проверяет, что соединение с БД активно."""
+    assert db_connection.is_connected
+
+# ИСПРАВЛЕНО: cleanup_db_data удален из аргументов
+@pytest.mark.asyncio
+async def test_data_insertion_and_fetch(db_connection: Database):
     """
-    Бір жазбаны енгізуді және оны кейіннен алуды тексереді.
-    cleanup_db_data фикстурасы тест басталғанға дейін кестенің таза болуын қамтамасыз етеді.
+    Тексереді енгізу және алу.
     """
 
     test_data = {
@@ -38,11 +37,12 @@ async def test_data_insertion_and_fetch(db_connection: Database, cleanup_db_data
     assert record is not None
     assert record['data_text'] == test_data['data_text']
 
+
+# ИСПРАВЛЕНО: cleanup_db_data удален из аргументов
 @pytest.mark.asyncio
-async def test_fetch_limit_and_order(db_connection: Database, cleanup_db_data):
+async def test_fetch_limit_and_order(db_connection: Database):
     """
-    /fetch командасының (LIMIT 5, ORDER BY created_at DESC) дұрыс жұмыс істеуін тексереді.
-    cleanup_db_data фикстурасы тест басталғанға дейін кестенің таза болуын қамтамасыз етеді.
+    Тексереді LIMIT және ORDER BY.
     """
 
     # 6 жазбаны енгізу
