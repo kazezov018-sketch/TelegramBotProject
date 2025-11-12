@@ -1,99 +1,20 @@
 import pytest
-import pytest_asyncio
-import os
-import asyncio
 from databases import Database
-import asyncpg
-import datetime
+# db_connection және cleanup_db_data фикстуралары conftest.py файлынан автоматты түрде импортталады
 
-# --- Конфигурация для CI ---
-DATABASE_URL = os.getenv("DATABASE_URL")
-
-# --- Фикстура для Подключения к БД ---
-
-@pytest_asyncio.fixture(scope="module")
-async def db_connection():
-    """
-    Устанавливает асинхронное соединение с тестовой БД PostgreSQL
-    и гарантирует, что таблица user_data существует.
-    """
-    if not DATABASE_URL:
-        pytest.fail("DATABASE_URL не установлен.")
-
-    database = Database(DATABASE_URL)
-
-    try:
-        await database.connect()
-    except Exception as e:
-        pytest.fail(f"Не удалось подключиться к PostgreSQL: {e}")
-
-    # Создание таблицы
-    CREATE_TABLE_QUERY = """
-    CREATE TABLE IF NOT EXISTS user_data (
-        id SERIAL PRIMARY KEY,
-        chat_id BIGINT NOT NULL,
-        username VARCHAR(255),
-        data_text TEXT NOT NULL,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-    );
-    """
-    await database.execute(CREATE_TABLE_QUERY)
-
-    # Предоставляем соединение для тестов
-    yield database
-
-    # Очистка после выполнения всех тестов модуля
-    await database.execute("DROP TABLE user_data;")
-    await database.disconnect()
-
-@pytest.fixture(scope="function")
-async def cleanup_db_data(db_connection: Database):
-    """Очищает таблицу user_data перед каждым тестом."""
-
-    # 1. Запуск перед тестом (Setup)
-    await db_connection.execute("DELETE FROM user_data;")
-
-    yield
-
-    # 2. Очистка после теста (Teardown, для надежности можно повторить)
-    await db_connection.execute("DELETE FROM user_data;")
-
-# --- Тесты Асинхронных Операций ---
+# --- Тестілер ---
 
 @pytest.mark.asyncio
 async def test_db_connection_success(db_connection: Database):
-    """Проверяет, что соединение с БД активно."""
+    """Базалық қосылымның белсенді екенін тексереді."""
     assert db_connection.is_connected == True
 
 @pytest.mark.asyncio
 async def test_data_insertion_and_fetch(db_connection: Database, cleanup_db_data):
-    # Добавлен cleanup_db_data
-    """Тестирует вставку одной записи и ее последующее извлечение."""
-
-    # await db_connection.execute("DELETE FROM user_data;") <- Эту строку можно удалить,
-    # так как ее теперь выполняет фикстура cleanup_db_data
-
-    # ... оставшаяся логика теста ...
-
-@pytest.mark.asyncio
-async def test_fetch_limit_and_order(db_connection: Database, cleanup_db_data):
-    # Добавлен cleanup_db_data
-    """Проверяет, что /fetch команда (LIMIT 5, ORDER BY DESC) работает корректно."""
-
-    # await db_connection.execute("DELETE FROM user_data;") <- Эту строку можно удалить,
-    # так как ее теперь выполняет фикстура cleanup_db_data
-
-    # ... оставшаяся логика теста ...
-# --- Тесты Асинхронных Операций ---
-
-@pytest.mark.asyncio
-async def test_db_connection_success(db_connection: Database):
-    """Проверяет, что соединение с БД активно."""
-    assert db_connection.is_connected == True
-
-@pytest.mark.asyncio
-async def test_data_insertion_and_fetch(db_connection: Database):
-    """Тестирует вставку одной записи и ее последующее извлечение."""
+    """
+    Бір жазбаны енгізуді және оны кейіннен алуды тексереді.
+    cleanup_db_data фикстурасы тест басталғанға дейін кестенің таза болуын қамтамасыз етеді.
+    """
 
     test_data = {
         "chat_id": 10001,
@@ -106,35 +27,35 @@ async def test_data_insertion_and_fetch(db_connection: Database):
     VALUES (:chat_id, :username, :data_text)
     """
 
-    # 1. Вставка (INSERT)
+    # 1. Енгізу (INSERT)
     await db_connection.execute(query=INSERT_QUERY, values=test_data)
 
-    # 2. Извлечение (SELECT)
+    # 2. Алу (SELECT)
     SELECT_QUERY = "SELECT data_text, chat_id FROM user_data WHERE chat_id = :chat_id"
     record = await db_connection.fetch_one(query=SELECT_QUERY, values={"chat_id": test_data['chat_id']})
 
-    # 3. Проверка
+    # 3. Тексеру
     assert record is not None
     assert record['data_text'] == test_data['data_text']
 
 @pytest.mark.asyncio
-async def test_fetch_limit_and_order(db_connection: Database):
+async def test_fetch_limit_and_order(db_connection: Database, cleanup_db_data):
     """
-    Проверяет, что /fetch команда (LIMIT 5, ORDER BY DESC) работает корректно.
+    /fetch командасының (LIMIT 5, ORDER BY created_at DESC) дұрыс жұмыс істеуін тексереді.
+    cleanup_db_data фикстурасы тест басталғанға дейін кестенің таза болуын қамтамасыз етеді.
     """
 
-    await db_connection.execute("DELETE FROM user_data;")
-
-    # Вставляем 6 записей
+    # 6 жазбаны енгізу
     for i in range(1, 7):
         data_text = f"Entry_{i}"
         await db_connection.execute(
             "INSERT INTO user_data (chat_id, username, data_text) VALUES (9999, 'order_test', :text)",
             values={"text": data_text}
         )
+        # SELECT 1; әр енгізуден кейін TIMESTAMP-тың бірегейлігін қамтамасыз етуге көмектеседі
         await db_connection.fetch_one("SELECT 1;")
 
-    # Спрашиваем 5 последних записей
+    # Соңғы 5 жазбаны сұрау
     SELECT_QUERY = """
     SELECT data_text FROM user_data
     ORDER BY created_at DESC
@@ -142,6 +63,7 @@ async def test_fetch_limit_and_order(db_connection: Database):
     """
     records = await db_connection.fetch_all(query=SELECT_QUERY)
 
-    # Проверка порядка
-    assert records[0]['data_text'] == "Entry_6"
-    assert records[-1]['data_text'] == "Entry_2"
+    # Тексеру
+    assert len(records) == 5
+    assert records[0]['data_text'] == "Entry_6" # Ең соңғы жазба
+    assert records[-1]['data_text'] == "Entry_2" # Соңынан бесінші жазба
