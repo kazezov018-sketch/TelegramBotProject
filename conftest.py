@@ -4,35 +4,31 @@ import os
 from databases import Database
 import pytest_asyncio
 
-# CI үшін айнымалы ортаны пайдалану
+# Get database URL from environment variable
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
-    # Запасное значение для локального запуска
+    # Default fallback for local execution
     DATABASE_URL = "postgresql://user:password@localhost:5432/test_db"
 
 
-# 1. Event Loop-ты Сессияда бекіту - ЭТОТ БЛОК УДАЛЕН!
-
-
-# 2. Асинхронды DB фикстурасы: scope="session" (Оставляем session)
-# pytest-asyncio автоматически запустит эту фикстуру в цикле.
+# 1. Database Connection Fixture (Session Scope)
+# Scope is set to 'session' for pool efficiency and compatibility with async loop config.
 @pytest_asyncio.fixture(scope="session")
 async def db_connection():
     """
-    Устанавливает асинхронное соединение с БД и создает таблицу.
-    Область видимости: session.
+    Establishes an asynchronous database connection pool and creates the table.
     """
     if not DATABASE_URL:
-        pytest.fail("DATABASE_URL не установлен.")
+        pytest.fail("DATABASE_URL environment variable is not set.")
 
     database = Database(DATABASE_URL)
 
     try:
         await database.connect()
     except Exception as e:
-        pytest.fail(f"Не удалось подключиться к PostgreSQL: {e}")
+        pytest.fail(f"Failed to connect to PostgreSQL: {e}")
 
-    # Создание таблицы
+    # Create the necessary table
     CREATE_TABLE_QUERY = """
     CREATE TABLE IF NOT EXISTS user_data (
         id SERIAL PRIMARY KEY,
@@ -46,21 +42,23 @@ async def db_connection():
 
     yield database
 
-    # Сессия аяқталғаннан кейінгі тазалау
+    # Session Teardown: Drop the table and disconnect the pool
     await database.execute("DROP TABLE user_data;")
     await database.disconnect()
 
 
-# 3. Асинхронды Тазалау фикстурасы: (Оставляем function)
+# 2. Cleanup Fixture (Function Scope)
 @pytest_asyncio.fixture(scope="function")
 async def cleanup_db_data(db_connection: Database):
-    """Очищает таблицу user_data перед каждым тестом (только Setup)."""
+    """
+    Cleans the user_data table before each test.
+    Teardown is empty to prevent connection reset errors (InterfaceError).
+    """
 
-    # Setup: Очистка перед тестом (Обязательно!)
+    # Setup: Delete all rows before running the test
     await db_connection.execute("DELETE FROM user_data;")
 
     yield
 
-    # Teardown: Пусто
+    # Teardown: Empty pass
     pass
-```eof
