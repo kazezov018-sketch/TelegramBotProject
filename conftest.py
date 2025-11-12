@@ -41,11 +41,10 @@ async def db_connection():
 
 # 3. Фикстура для изоляции тестов (Опционально, но рекомендуется)
 # Гарантирует, что данные между тестами не пересекаются.
-@pytest.fixture(autouse=True)
+@pytest.fixture()
 async def cleanup_db_data(db_connection: Database):
     """Очищает таблицу user_data перед каждым тестом."""
 
-    # Выполняется ПЕРЕД тестом
     await db_connection.execute("DELETE FROM user_data;")
 
     yield

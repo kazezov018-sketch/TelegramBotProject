@@ -46,6 +46,44 @@ async def db_connection():
     await database.execute("DROP TABLE user_data;")
     await database.disconnect()
 
+    @pytest.fixture(scope="function")
+async def cleanup_db_data(db_connection: Database):
+    """Очищает таблицу user_data перед каждым тестом."""
+
+    # 1. Запуск перед тестом (Setup)
+    await db_connection.execute("DELETE FROM user_data;")
+
+    yield
+
+    # 2. Очистка после теста (Teardown, для надежности можно повторить)
+    await db_connection.execute("DELETE FROM user_data;")
+
+# --- Тесты Асинхронных Операций ---
+
+@pytest.mark.asyncio
+async def test_db_connection_success(db_connection: Database):
+    """Проверяет, что соединение с БД активно."""
+    assert db_connection.is_connected == True
+
+@pytest.mark.asyncio
+async def test_data_insertion_and_fetch(db_connection: Database, cleanup_db_data):
+    # Добавлен cleanup_db_data
+    """Тестирует вставку одной записи и ее последующее извлечение."""
+
+    # await db_connection.execute("DELETE FROM user_data;") <- Эту строку можно удалить,
+    # так как ее теперь выполняет фикстура cleanup_db_data
+
+    # ... оставшаяся логика теста ...
+
+@pytest.mark.asyncio
+async def test_fetch_limit_and_order(db_connection: Database, cleanup_db_data):
+    # Добавлен cleanup_db_data
+    """Проверяет, что /fetch команда (LIMIT 5, ORDER BY DESC) работает корректно."""
+
+    # await db_connection.execute("DELETE FROM user_data;") <- Эту строку можно удалить,
+    # так как ее теперь выполняет фикстура cleanup_db_data
+
+    # ... оставшаяся логика теста ...
 # --- Тесты Асинхронных Операций ---
 
 @pytest.mark.asyncio
